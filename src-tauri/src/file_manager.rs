@@ -298,6 +298,21 @@ fn windows_attributes(metadata: Option<&fs::Metadata>) -> Option<u32> {
     }
 }
 
+fn parent_for_directory(path: &Path) -> Option<String> {
+    if let Some(parent) = path.parent() {
+        if parent != path {
+            return Some(parent.to_string_lossy().into_owned());
+        }
+    }
+
+    #[cfg(windows)]
+    if path.has_root() && path.components().count() == 2 {
+        return Some(THIS_PC_PATH.to_string());
+    }
+
+    None
+}
+
 fn read_directory_page(
     path: &Path,
     offset: usize,
@@ -386,9 +401,7 @@ fn read_directory_page(
 
     Ok(DirectoryListing {
         path: canonical.to_string_lossy().into_owned(),
-        parent: canonical
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned()),
+        parent: parent_for_directory(&canonical),
         entries,
         total_entries,
         next_offset: end,
@@ -667,5 +680,14 @@ mod tests {
         assert_eq!(super::bounded_page_limit(None), 200);
         assert_eq!(super::bounded_page_limit(Some(1_000_000)), 500);
         assert_eq!(super::bounded_page_limit(Some(0)), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn drive_root_parent_is_this_pc() {
+        assert_eq!(
+            super::parent_for_directory(Path::new(r"C:\\")),
+            Some(super::THIS_PC_PATH.to_string())
+        );
     }
 }
