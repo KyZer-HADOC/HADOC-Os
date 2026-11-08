@@ -1,4 +1,6 @@
+mod benchmark;
 mod file_manager;
+mod games;
 mod system_info;
 
 use std::process::Command;

@@ -79,3 +79,20 @@ test("shouldRefreshDashboard pauses monitoring while hidden or gaming", () => {
   assert.equal(shouldRefreshDashboard({ documentHidden: true, gamingMode: true }), false);
   assert.equal(shouldRefreshDashboard({ documentHidden: false, gamingMode: false }), true);
 });
+
+import test from "node:test";
+import assert from "node:assert/strict";
+import { gameProfileLabel, formatBenchmarkMetric } from "../src/ui-utils.js";
+
+test("gameProfileLabel names balanced and low-resource game presets", () => {
+  assert.equal(gameProfileLabel("balanced"), "Balanced");
+  assert.equal(gameProfileLabel("gaming"), "Gaming / Low Resource");
+  assert.equal(gameProfileLabel("unknown"), "Balanced");
+});
+
+test("formatBenchmarkMetric returns a safe formatted metric", () => {
+  assert.equal(formatBenchmarkMetric(12.345, "MB/s"), "12.3 MB/s");
+  assert.equal(formatBenchmarkMetric(0, "M/s"), "0.0 M/s");
+  assert.equal(formatBenchmarkMetric(null, "MB/s"), "Unavailable");
+  assert.equal(formatBenchmarkMetric(Number.NaN, "MB/s"), "Unavailable");
+});
