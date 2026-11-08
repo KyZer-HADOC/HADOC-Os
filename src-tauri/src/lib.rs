@@ -38,6 +38,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![get_platform_info, launch_windows_app, file_manager::list_directory, file_manager::get_quick_locations, file_manager::open_path, system_info::get_system_snapshot])
         .setup(|app| {
+            app.manage(system_info::SystemInfoState::new());
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();
