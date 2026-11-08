@@ -161,7 +161,7 @@ app.innerHTML = `
                 <div class="gc-add-title"><strong>Add a game manually</strong><small>Use the full path to a .exe, .lnk or .url file</small></div>
                 <form id="gc-add-form" class="gc-add-form">
                   <input id="gc-add-name" type="text" maxlength="80" placeholder="Game name (optional)" aria-label="Game name">
-                  <input id="gc-add-path" type="text" required placeholder="C:\Games\Example\Game.exe" aria-label="Game executable or shortcut path">
+                  <input id="gc-add-path" type="text" required placeholder="C:\\Games\\Example\\Game.exe" aria-label="Game executable or shortcut path">
                   <select id="gc-add-profile" aria-label="Default game profile">
                     <option value="gaming">Gaming / Low Resource</option>
                     <option value="balanced">Balanced</option>

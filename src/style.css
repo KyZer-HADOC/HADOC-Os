@@ -239,3 +239,8 @@
   .gc-game-actions>*{flex:1 1 auto}
   .gc-benchmark-results{grid-template-columns:1fr}
 }
+
+
+/* Explicit hidden-state rules for components with their own layout display. */
+.game-center.hidden,
+.gc-selected-empty.hidden { display: none !important; }
