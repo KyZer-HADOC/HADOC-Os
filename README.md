@@ -17,15 +17,25 @@ HADOC OS is an early preview. The custom desktop shell is in progress and the fi
 - Quick launch for Windows Settings, Terminal, Task Manager, Notepad and the default browser.
 - Built-in **read-only File Manager** with Home, common user folders, available drive roots, folder navigation, back/up controls, path entry, filename filtering and double-click open.
 - Live system overview with computer name, Windows version, CPU architecture/thread count, RAM use and available storage volumes.
+- **Gaming / Low Resource mode** pauses HADOC dashboard monitoring and removes nonessential blur, ambient effects and animations.
+- Automatic low-effects presentation on systems with two or fewer logical threads or 4 GiB RAM or less.
 - A separate shortcut for the native Windows File Explorer.
 
 The built-in File Manager does not delete, move, rename, copy or edit files. It lists folders and files and opens selected items using their normal Windows application.
+
+### Performance and game compatibility
+
+Gaming / Low Resource mode reduces work performed by HADOC itself. It does not overclock hardware, create extra CPU/GPU capacity, close Windows services, kill other processes, change registry settings or guarantee extra game FPS. Game performance remains dependent on the PC's CPU, GPU, RAM, storage, drivers and each game's requirements.
+
+The File Manager is paginated and does not index the entire disk. System monitoring reuses collectors, refreshes storage less frequently than memory and pauses while the app is hidden or Gaming mode is active.
+
+Core 2 Duo-class systems are a low-resource compatibility goal for the HADOC shell when their installed Windows and WebView2 runtime are supported. This does **not** mean every modern game or Windows 11 can run on them. Windows 11 requires a supported processor and additional hardware requirements; most Core 2 Duo PCs are not officially supported. Windows 10 support ended on October 14, 2025, so a Windows 10 host no longer receives free security updates from Microsoft.
 
 ## Compatibility
 
 HADOC OS is not a bootable operating system and does not emulate Windows. App and game compatibility is inherited from the host Windows installation, hardware, graphics drivers, runtime libraries and anti-cheat systems. Compatibility with every game or application is not guaranteed.
 
-The initial target is **Windows 10 22H2 and Windows 11, x64**. The app uses the WebView2 runtime supplied by Windows or installed by the Tauri setup.
+The target is **Windows 10 (version 1803 or later) and Windows 11, x64**, where WebView2 is available. The app uses the WebView2 runtime supplied by Windows or installed by the Tauri setup.
 
 ## Development
 

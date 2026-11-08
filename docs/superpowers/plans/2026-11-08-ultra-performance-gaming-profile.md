@@ -19,11 +19,11 @@ Files:
 - Modify `src/ui-utils.js`
 - Modify `tests/ui-utils.test.js`
 
-- [ ] Add a test that 2 logical threads select low-effects mode.
-- [ ] Add a test that <= 4 GiB RAM selects low-effects mode.
-- [ ] Add a test that a newer device stays in balanced presentation mode.
-- [ ] Add tests for dashboard refresh being suppressed while hidden or while Gaming mode is active.
-- [ ] Run tests first and observe RED.
+- [x] Add a test that 2 logical threads select low-effects mode.
+- [x] Add a test that <= 4 GiB RAM selects low-effects mode.
+- [x] Add a test that a newer device stays in balanced presentation mode.
+- [x] Add tests for dashboard refresh being suppressed while hidden or while Gaming mode is active.
+- [x] Run tests first and observe RED.
 - [ ] Implement small pure helpers and observe GREEN.
 
 ### Task 2 — Add a reversible Gaming / Low Resource toggle

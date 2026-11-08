@@ -111,3 +111,42 @@
 .fm-hidden-label{flex:none;border:1px solid #ff718833;border-radius:4px;padding:2px 4px;color:#ff94a5;font-size:6px;letter-spacing:.8px}
 .fm-load-more{padding:13px 8px;color:#938a96;font-size:9px;text-align:center}
 .fm-entry:focus-visible,.fm-location:focus-visible,.fm-nav button:focus-visible{outline:1px solid #ff7188;outline-offset:2px}
+
+
+/* Low resource presentation: keep functionality, remove expensive decoration. */
+.desktop.low-resource-mode:before{display:none}
+.desktop.low-resource-mode .ambient,
+.desktop.low-resource-mode .orb-wrap{display:none}
+.desktop.low-resource-mode .topbar,
+.desktop.low-resource-mode .taskbar,
+.desktop.low-resource-mode .widget,
+.desktop.low-resource-mode .file-window,
+.desktop.low-resource-mode .launcher-card,
+.desktop.low-resource-mode .fm-toolbar,
+.desktop.low-resource-mode .fm-sidebar{backdrop-filter:none!important;box-shadow:none!important}
+.desktop.low-resource-mode .orb,
+.desktop.low-resource-mode .brand-mark,
+.desktop.low-resource-mode .mini-mark,
+.desktop.low-resource-mode .metric-track>span{box-shadow:none!important}
+.desktop.low-resource-mode *,
+.desktop.low-resource-mode *:before,
+.desktop.low-resource-mode *:after{scroll-behavior:auto!important;animation:none!important;transition:none!important}
+
+/* Gaming mode keeps the launcher and navigation but parks dashboard work. */
+.desktop.gaming-mode{background:#09090d}
+.desktop.gaming-mode:before,
+.desktop.gaming-mode .ambient,
+.desktop.gaming-mode .orb-wrap,
+.desktop.gaming-mode .widgets{display:none!important}
+.desktop.gaming-mode .hero{height:auto;min-height:0;padding-top:35px;padding-bottom:25px}
+.desktop.gaming-mode .hero h1 em{text-shadow:none}
+.desktop.gaming-mode .topbar,
+.desktop.gaming-mode .taskbar{backdrop-filter:none;background:#101015;border-color:#ffffff12}
+.desktop.gaming-mode .hero p{display:none}
+.desktop.gaming-mode .ghost{backdrop-filter:none}
+.gaming-toggle.gaming-active{border-color:#ff526b88;color:#ff9cad;background:#a8173526}
+.gaming-toggle:focus-visible{outline:2px solid #ff7188;outline-offset:3px}
+
+@media(prefers-reduced-motion:reduce){
+  *,*:before,*:after{scroll-behavior:auto!important;animation:none!important;transition:none!important}
+}

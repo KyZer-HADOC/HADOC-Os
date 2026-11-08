@@ -1,13 +1,16 @@
 import "./style.css";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { formatBytes, filterEntries, mergeDirectoryPage } from "./ui-utils.js";
+import { formatBytes, filterEntries, mergeDirectoryPage, isLowResourceDevice, shouldRefreshDashboard } from "./ui-utils.js";
 
 const app = document.querySelector("#app");
 const win = getCurrentWindow();
 
 let startOpen = false;
 let fileManagerOpen = false;
+let gamingMode = false;
+let lowResourcePresentation = false;
+let systemRefreshInFlight = false;
 let currentDirectory = null;
 let currentParent = null;
 let currentEntries = [];
@@ -47,7 +50,7 @@ app.innerHTML = `
         <div class="eyebrow"><span></span> YOUR WINDOWS. REIMAGINED.</div>
         <h1>Welcome to<br><em>HADOC OS.</em></h1>
         <p>A cleaner space for everything you do.<br>Fast, focused and built around your Windows PC.</p>
-        <div class="hero-actions"><button class="primary" id="open-start">Open launcher <b>↗</b></button><button class="ghost" id="full">Immersive mode ⛶</button></div>
+        <div class="hero-actions"><button class="primary" id="open-start">Open launcher <b>↗</b></button><button class="ghost" id="full">Immersive mode ⛶</button><button class="ghost gaming-toggle" id="gaming-mode" type="button" aria-pressed="false">Gaming mode: Off</button></div>
       </div>
       <div class="orb-wrap"><div class="orb-ring ring-a"></div><div class="orb-ring ring-b"></div><div class="orb"><span>H</span></div><div class="orb-caption">DESIGNED TO FEEL<br><strong>LIKE YOURS.</strong></div></div>
     </section>
@@ -140,6 +143,32 @@ async function launch(action) {
     toast(result || "Opened.");
   } catch (error) {
     toast(String(error));
+  }
+}
+
+function applyPerformancePresentation() {
+  const desktop = document.querySelector(".desktop");
+  desktop.classList.toggle("low-resource-mode", lowResourcePresentation || gamingMode);
+  desktop.classList.toggle("gaming-mode", gamingMode);
+
+  const button = document.querySelector("#gaming-mode");
+  button.setAttribute("aria-pressed", String(gamingMode));
+  button.textContent = gamingMode ? "Gaming mode: On" : "Gaming mode: Off";
+  button.classList.toggle("gaming-active", gamingMode);
+}
+
+function setGamingMode(enabled) {
+  gamingMode = Boolean(enabled);
+  if (gamingMode) {
+    toggleLauncher(false);
+    if (fileManagerOpen) closeFileManager();
+  }
+  applyPerformancePresentation();
+  toast(gamingMode
+    ? "Gaming mode enabled — HADOC effects and monitoring paused."
+    : "Balanced mode restored.");
+  if (!gamingMode && shouldRefreshDashboard({ documentHidden: document.hidden, gamingMode })) {
+    refreshSystemDashboard();
   }
 }
 
@@ -398,8 +427,14 @@ function closeFileManager() {
 }
 
 async function refreshSystemDashboard() {
+  if (!shouldRefreshDashboard({ documentHidden: document.hidden, gamingMode }) || systemRefreshInFlight) return;
+  systemRefreshInFlight = true;
+
   try {
     const snapshot = await invoke("get_system_snapshot");
+    if (gamingMode || document.hidden) return;
+    lowResourcePresentation = isLowResourceDevice(snapshot);
+    applyPerformancePresentation();
     setText("#computer-name", snapshot.computer_name || "Unavailable");
     setText("#platform", snapshot.os_version || "Unavailable");
     setText("#cpu-arch", snapshot.cpu_arch || "Unavailable");
@@ -454,6 +489,8 @@ async function refreshSystemDashboard() {
     document.querySelector("#memory-bar").style.width = "0%";
     const storage = document.querySelector("#storage-list");
     storage.textContent = "System information unavailable.";
+  } finally {
+    systemRefreshInFlight = false;
   }
 }
 
@@ -519,6 +556,7 @@ document.querySelector("#fm-entries").addEventListener("scroll", event => {
 document.querySelector("#min").addEventListener("click", () => win.minimize());
 document.querySelector("#max").addEventListener("click", () => win.toggleMaximize());
 document.querySelector("#close").addEventListener("click", () => win.close());
+document.querySelector("#gaming-mode").addEventListener("click", () => setGamingMode(!gamingMode));
 document.querySelector("#full").addEventListener("click", async () => {
   await win.setFullscreen(!(await win.isFullscreen()));
 });
@@ -555,9 +593,13 @@ updateClock();
 setInterval(updateClock, 15000);
 refreshSystemDashboard();
 setInterval(() => {
-  if (!document.hidden) refreshSystemDashboard();
+  if (shouldRefreshDashboard({ documentHidden: document.hidden, gamingMode })) {
+    refreshSystemDashboard();
+  }
 }, 20000);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshSystemDashboard();
+  if (shouldRefreshDashboard({ documentHidden: document.hidden, gamingMode })) {
+    refreshSystemDashboard();
+  }
 });
 
