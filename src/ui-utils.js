@@ -49,3 +49,16 @@ export function filterEntries(entries, query) {
     String(entry?.name ?? "").toLocaleLowerCase().includes(needle)
   );
 }
+
+
+export function isLowResourceDevice(snapshot) {
+  const logicalThreads = Number(snapshot?.logical_threads);
+  const totalMemory = Number(snapshot?.total_memory);
+  const hasLowThreadCount = Number.isFinite(logicalThreads) && logicalThreads > 0 && logicalThreads <= 2;
+  const hasLowMemory = Number.isFinite(totalMemory) && totalMemory > 0 && totalMemory <= 4 * 1024 ** 3;
+  return hasLowThreadCount || hasLowMemory;
+}
+
+export function shouldRefreshDashboard({ documentHidden = false, gamingMode = false } = {}) {
+  return !documentHidden && !gamingMode;
+}
