@@ -3,8 +3,10 @@ name: Build HADOC OS (Windows)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
     tags: ["v*"]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -23,9 +25,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
       - name: Install dependencies
         run: npm install
+      - name: Test frontend utilities
+        run: npm test
+      - name: Build frontend
+        run: npm run build
+      - name: Test Rust backend
+        run: cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1
       - name: Build Windows installer
         run: npm run tauri build
       - name: Upload installer
