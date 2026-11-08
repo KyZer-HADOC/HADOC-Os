@@ -57,3 +57,25 @@ test("filterEntries searches names case-insensitively and preserves text literal
   assert.deepEqual(filterEntries(entries, "<NOTES>"), [entries[2]]);
   assert.deepEqual(filterEntries(entries, ""), entries);
 });
+
+
+import { isLowResourceDevice, shouldRefreshDashboard } from "../src/ui-utils.js";
+
+test("isLowResourceDevice selects low-effects mode for dual-core systems", () => {
+  assert.equal(isLowResourceDevice({ logical_threads: 2, total_memory: 8 * 1024 ** 3 }), true);
+});
+
+test("isLowResourceDevice selects low-effects mode at or below 4 GiB RAM", () => {
+  assert.equal(isLowResourceDevice({ logical_threads: 4, total_memory: 4 * 1024 ** 3 }), true);
+});
+
+test("isLowResourceDevice leaves a higher-spec system in balanced mode", () => {
+  assert.equal(isLowResourceDevice({ logical_threads: 8, total_memory: 16 * 1024 ** 3 }), false);
+});
+
+test("shouldRefreshDashboard pauses monitoring while hidden or gaming", () => {
+  assert.equal(shouldRefreshDashboard({ documentHidden: true, gamingMode: false }), false);
+  assert.equal(shouldRefreshDashboard({ documentHidden: false, gamingMode: true }), false);
+  assert.equal(shouldRefreshDashboard({ documentHidden: true, gamingMode: true }), false);
+  assert.equal(shouldRefreshDashboard({ documentHidden: false, gamingMode: false }), true);
+});
