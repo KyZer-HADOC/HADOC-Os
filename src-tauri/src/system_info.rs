@@ -51,6 +51,24 @@ mod tests {
     use super::SystemSnapshot;
 
     #[test]
+    fn system_snapshot_serializes_a_present_cpu_architecture() {
+        let snapshot = SystemSnapshot {
+            computer_name: Some("HADOC-PC".into()),
+            os_version: Some("Windows".into()),
+            cpu_arch: Some("x86_64".into()),
+            logical_threads: 4,
+            total_memory: 1024,
+            used_memory: 512,
+            disks: Vec::new(),
+        };
+
+        let value = serde_json::to_value(snapshot).unwrap();
+
+        assert_eq!(value["cpu_arch"], "x86_64");
+        assert_eq!(value["computer_name"], "HADOC-PC");
+    }
+
+    #[test]
     fn system_snapshot_serializes_optional_values_and_disk_list() {
         let snapshot = SystemSnapshot {
             computer_name: None,
