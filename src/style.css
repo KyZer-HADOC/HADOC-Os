@@ -103,3 +103,11 @@
   .fm-address input{font-size:8px}
   .fm-nav button{width:27px;height:28px}
 }
+
+
+/* Full filesystem navigation affordances */
+.fm-nav button{min-width:30px}
+.fm-entry-name{overflow:hidden}
+.fm-hidden-label{flex:none;border:1px solid #ff718833;border-radius:4px;padding:2px 4px;color:#ff94a5;font-size:6px;letter-spacing:.8px}
+.fm-load-more{padding:13px 8px;color:#938a96;font-size:9px;text-align:center}
+.fm-entry:focus-visible,.fm-location:focus-visible,.fm-nav button:focus-visible{outline:1px solid #ff7188;outline-offset:2px}
