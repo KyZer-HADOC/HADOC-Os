@@ -273,4 +273,44 @@ mod tests {
 
         assert!(listing.entries.is_empty());
     }
+
+    #[test]
+    fn logical_drive_mask_includes_only_assigned_drive_letters() {
+        let roots = super::logical_drive_roots(0b1_0100);
+
+        assert_eq!(roots, vec![PathBuf::from(r"C:\\"), PathBuf::from(r"E:\\")]);
+    }
+
+    #[test]
+    fn this_pc_virtual_listing_contains_each_assigned_drive() {
+        let roots = vec![PathBuf::from(r"C:\\"), PathBuf::from(r"D:\\")];
+
+        let listing = super::this_pc_listing_from_roots(&roots);
+
+        assert_eq!(listing.path, "__HADOC_THIS_PC__");
+        assert_eq!(listing.parent, None);
+        assert_eq!(listing.entries.len(), 2);
+        assert_eq!(listing.entries[0].name, "C:");
+        assert_eq!(listing.entries[1].name, "D:");
+        assert!(listing.entries.iter().all(|entry| entry.is_dir));
+    }
+
+    #[test]
+    fn quick_locations_skip_missing_paths_and_deduplicate_existing_paths() {
+        let temp = TempDirectory::new();
+        let mut locations = Vec::new();
+
+        super::push_existing_location(
+            &mut locations, "Home", temp.path(), "⌂", "User"
+        );
+        super::push_existing_location(
+            &mut locations, "Home duplicate", temp.path(), "⌂", "User"
+        );
+        super::push_existing_location(
+            &mut locations, "Missing", &temp.path().join("not-created"), "▤", "User"
+        );
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].name, "Home");
+    }
 }
