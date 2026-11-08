@@ -1,7 +1,7 @@
 import "./style.css";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { formatBytes } from "./ui-utils.js";
+import { formatBytes, filterEntries, mergeDirectoryPage } from "./ui-utils.js";
 
 const app = document.querySelector("#app");
 const win = getCurrentWindow();
@@ -11,6 +11,13 @@ let fileManagerOpen = false;
 let currentDirectory = null;
 let currentParent = null;
 let currentEntries = [];
+let currentQuery = "";
+let currentOffset = 0;
+let currentTotalEntries = 0;
+let currentHasMore = false;
+let loadingMoreEntries = false;
+let directoryRequestId = 0;
+let filterTimer = null;
 let quickLocations = [];
 let directoryHistory = [];
 let historyIndex = -1;
@@ -73,6 +80,7 @@ app.innerHTML = `
         <div class="fm-toolbar">
           <div class="fm-nav">
             <button id="fm-back" aria-label="Go back" title="Back" disabled>←</button>
+            <button id="fm-forward" aria-label="Go forward" title="Forward" disabled>→</button>
             <button id="fm-up" aria-label="Go to parent folder" title="Up" disabled>↑</button>
             <button id="fm-refresh" aria-label="Refresh folder" title="Refresh">↻</button>
           </div>
@@ -137,6 +145,7 @@ async function launch(action) {
 
 function updateFileNavigation() {
   document.querySelector("#fm-back").disabled = historyIndex <= 0;
+  document.querySelector("#fm-forward").disabled = historyIndex >= directoryHistory.length - 1;
   document.querySelector("#fm-up").disabled = !currentParent;
 }
 
@@ -180,58 +189,81 @@ function formatModified(timestamp) {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
-function renderEntries() {
+function renderEntries({ preserveScroll = false } = {}) {
   const container = document.querySelector("#fm-entries");
-  const query = document.querySelector("#fm-filter").value.trim().toLocaleLowerCase();
-  const visibleEntries = currentEntries.filter(entry => entry.name.toLocaleLowerCase().includes(query));
+  const previousScrollTop = container.scrollTop;
+  const visibleEntries = filterEntries(
+    currentEntries,
+    document.querySelector("#fm-filter").value
+  );
   container.replaceChildren();
 
   if (!visibleEntries.length) {
     const empty = document.createElement("div");
     empty.className = "fm-empty";
-    empty.textContent = query ? "No items match your filter." : "This folder is empty.";
+    empty.textContent = document.querySelector("#fm-filter").value.trim()
+      ? "No items match your filter."
+      : "This folder is empty.";
     container.append(empty);
-    setText("#fm-status", query ? "No matching items" : "0 items");
-    return;
+  } else {
+    for (const entry of visibleEntries) {
+      const row = document.createElement("button");
+      row.className = "fm-entry";
+      row.type = "button";
+      row.dataset.path = entry.path;
+      row.dataset.directory = String(Boolean(entry.is_dir));
+
+      const nameCell = document.createElement("span");
+      nameCell.className = "fm-entry-name";
+      const icon = document.createElement("i");
+      icon.className = entry.is_dir ? "fm-entry-icon folder" : "fm-entry-icon";
+      icon.textContent = entry.is_dir ? "▰" : "▤";
+      const name = document.createElement("b");
+      name.textContent = entry.name;
+      nameCell.append(icon, name);
+
+      if (entry.is_hidden) {
+        const hidden = document.createElement("small");
+        hidden.className = "fm-hidden-label";
+        hidden.textContent = "HIDDEN";
+        nameCell.append(hidden);
+      }
+
+      const size = document.createElement("span");
+      size.className = "fm-entry-size";
+      size.textContent = entry.is_dir ? "—" : formatBytes(entry.size);
+
+      const modified = document.createElement("span");
+      modified.className = "fm-entry-modified";
+      modified.textContent = formatModified(entry.modified);
+
+      row.append(nameCell, size, modified);
+      row.addEventListener("click", () => {
+        container.querySelectorAll(".fm-entry.selected").forEach(item => item.classList.remove("selected"));
+        row.classList.add("selected");
+      });
+      row.addEventListener("dblclick", () => openEntry(entry));
+      row.addEventListener("keydown", event => {
+        if (event.key === "Enter") openEntry(entry);
+      });
+      container.append(row);
+    }
   }
 
-  for (const entry of visibleEntries) {
-    const row = document.createElement("button");
-    row.className = "fm-entry";
-    row.type = "button";
-    row.dataset.path = entry.path;
-    row.dataset.directory = String(Boolean(entry.is_dir));
-
-    const nameCell = document.createElement("span");
-    nameCell.className = "fm-entry-name";
-    const icon = document.createElement("i");
-    icon.className = entry.is_dir ? "fm-entry-icon folder" : "fm-entry-icon";
-    icon.textContent = entry.is_dir ? "▰" : "▤";
-    const name = document.createElement("b");
-    name.textContent = entry.name;
-    nameCell.append(icon, name);
-
-    const size = document.createElement("span");
-    size.className = "fm-entry-size";
-    size.textContent = entry.is_dir ? "—" : formatBytes(entry.size);
-
-    const modified = document.createElement("span");
-    modified.className = "fm-entry-modified";
-    modified.textContent = formatModified(entry.modified);
-
-    row.append(nameCell, size, modified);
-    row.addEventListener("click", () => {
-      container.querySelectorAll(".fm-entry.selected").forEach(item => item.classList.remove("selected"));
-      row.classList.add("selected");
-    });
-    row.addEventListener("dblclick", () => openEntry(entry));
-    row.addEventListener("keydown", event => {
-      if (event.key === "Enter") openEntry(entry);
-    });
-    container.append(row);
+  if (currentHasMore) {
+    const more = document.createElement("div");
+    more.className = "fm-load-more";
+    more.textContent = loadingMoreEntries ? "Loading more items…" : "Scroll down to load more";
+    container.append(more);
   }
 
-  setText("#fm-status", `${visibleEntries.length} item${visibleEntries.length === 1 ? "" : "s"}`);
+  if (preserveScroll) container.scrollTop = previousScrollTop;
+  const shown = currentEntries.length;
+  const total = currentTotalEntries;
+  const status = currentHasMore
+    ? `Showing ${shown} of ${total} items · scroll for more`
+    : `${total} item${total === 1 ? "" : "s"}`;
+  setText("#fm-status", status);
 }
 
 async function openEntry(entry) {
@@ -248,15 +280,29 @@ async function openEntry(entry) {
 }
 
 async function loadDirectory(path = null, options = {}) {
-  const { recordHistory = true } = options;
+  const { recordHistory = true, query = "" } = options;
+  const requestId = ++directoryRequestId;
   const container = document.querySelector("#fm-entries");
-  container.innerHTML = '<div class="fm-empty">Loading folder...</div>';
+  container.innerHTML = '<div class="fm-empty">Loading folder…</div>';
+  currentQuery = query;
 
   try {
-    const listing = await invoke("list_directory", { path });
+    const listing = await invoke("list_directory", {
+      path,
+      offset: 0,
+      limit: 200,
+      query: query || null
+    });
+    if (requestId !== directoryRequestId) return false;
+
     currentDirectory = listing.path;
     currentParent = listing.parent;
-    currentEntries = Array.isArray(listing.entries) ? listing.entries : [];
+    const page = mergeDirectoryPage([], listing);
+    currentEntries = page.entries;
+    currentOffset = page.nextOffset;
+    currentHasMore = page.hasMore;
+    currentTotalEntries = Number(listing.total_entries) || currentEntries.length;
+    loadingMoreEntries = false;
 
     if (recordHistory) {
       directoryHistory = directoryHistory.slice(0, historyIndex + 1);
@@ -264,11 +310,16 @@ async function loadDirectory(path = null, options = {}) {
       historyIndex = directoryHistory.length - 1;
     }
 
-    document.querySelector("#fm-path").value = currentDirectory;
-    document.querySelector("#fm-filter").value = "";
-    const folderName = currentDirectory.split(/[\\/]/).filter(Boolean).at(-1) || currentDirectory;
+    document.querySelector("#fm-path").value =
+      currentDirectory === "__HADOC_THIS_PC__" ? "This PC" : currentDirectory;
+    document.querySelector("#fm-filter").value = query;
+    const folderName = currentDirectory === "__HADOC_THIS_PC__"
+      ? "This PC"
+      : currentDirectory.split(/[\\/]/).filter(Boolean).at(-1) || currentDirectory;
     setText("#fm-folder-title", folderName);
-    setText("#fm-folder-subtitle", currentDirectory);
+    setText("#fm-folder-subtitle", currentDirectory === "__HADOC_THIS_PC__"
+      ? "Your Windows drives and storage locations"
+      : currentDirectory);
     renderEntries();
     updateFileNavigation();
 
@@ -277,6 +328,10 @@ async function loadDirectory(path = null, options = {}) {
     });
     return true;
   } catch (error) {
+    if (requestId !== directoryRequestId) return false;
+    currentEntries = [];
+    currentHasMore = false;
+    currentTotalEntries = 0;
     container.replaceChildren();
     const empty = document.createElement("div");
     empty.className = "fm-empty fm-error";
@@ -286,6 +341,35 @@ async function loadDirectory(path = null, options = {}) {
     toast(String(error));
     updateFileNavigation();
     return false;
+  }
+}
+
+async function loadMoreDirectoryEntries() {
+  if (!fileManagerOpen || !currentHasMore || loadingMoreEntries || !currentDirectory) return;
+  const requestId = directoryRequestId;
+  loadingMoreEntries = true;
+  renderEntries({ preserveScroll: true });
+
+  try {
+    const listing = await invoke("list_directory", {
+      path: currentDirectory,
+      offset: currentOffset,
+      limit: 200,
+      query: currentQuery || null
+    });
+    if (requestId !== directoryRequestId) return;
+
+    const page = mergeDirectoryPage(currentEntries, listing);
+    currentEntries = page.entries;
+    currentOffset = page.nextOffset;
+    currentHasMore = page.hasMore;
+    currentTotalEntries = Number(listing.total_entries) || currentTotalEntries;
+  } catch (error) {
+    toast(String(error));
+    currentHasMore = false;
+  } finally {
+    loadingMoreEntries = false;
+    if (requestId === directoryRequestId) renderEntries({ preserveScroll: true });
   }
 }
 
@@ -398,18 +482,39 @@ document.querySelector("#fm-back").addEventListener("click", async () => {
     updateFileNavigation();
   }
 });
+document.querySelector("#fm-forward").addEventListener("click", async () => {
+  if (historyIndex >= directoryHistory.length - 1) return;
+  const targetIndex = historyIndex + 1;
+  const success = await loadDirectory(directoryHistory[targetIndex], { recordHistory: false });
+  if (success) {
+    historyIndex = targetIndex;
+    updateFileNavigation();
+  }
+});
 document.querySelector("#fm-up").addEventListener("click", () => {
   if (currentParent) loadDirectory(currentParent);
 });
 document.querySelector("#fm-refresh").addEventListener("click", () => {
-  if (currentDirectory) loadDirectory(currentDirectory, { recordHistory: false });
+  if (currentDirectory) loadDirectory(currentDirectory, { recordHistory: false, query: currentQuery });
 });
 document.querySelector("#fm-path-form").addEventListener("submit", event => {
   event.preventDefault();
   const path = document.querySelector("#fm-path").value.trim();
-  if (path) loadDirectory(path);
+  if (path) loadDirectory(path === "This PC" ? "__HADOC_THIS_PC__" : path);
 });
-document.querySelector("#fm-filter").addEventListener("input", renderEntries);
+document.querySelector("#fm-filter").addEventListener("input", () => {
+  const query = document.querySelector("#fm-filter").value.trim();
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(() => {
+    if (currentDirectory) loadDirectory(currentDirectory, { recordHistory: false, query });
+  }, 180);
+});
+document.querySelector("#fm-entries").addEventListener("scroll", event => {
+  const element = event.currentTarget;
+  if (element.scrollTop + element.clientHeight >= element.scrollHeight - 120) {
+    loadMoreDirectoryEntries();
+  }
+});
 
 document.querySelector("#min").addEventListener("click", () => win.minimize());
 document.querySelector("#max").addEventListener("click", () => win.toggleMaximize());
@@ -418,6 +523,20 @@ document.querySelector("#full").addEventListener("click", async () => {
   await win.setFullscreen(!(await win.isFullscreen()));
 });
 document.addEventListener("keydown", event => {
+  const target = event.target;
+  const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+  if (fileManagerOpen && !typing && event.altKey && event.key === "ArrowLeft") {
+    document.querySelector("#fm-back").click();
+  } else if (fileManagerOpen && !typing && event.altKey && event.key === "ArrowRight") {
+    document.querySelector("#fm-forward").click();
+  } else if (fileManagerOpen && !typing && event.key === "Backspace" && currentParent) {
+    document.querySelector("#fm-up").click();
+  } else if (fileManagerOpen && !typing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "l") {
+    event.preventDefault();
+    const path = document.querySelector("#fm-path");
+    path.focus();
+    path.select();
+  }
   if (event.key === "Escape") {
     if (fileManagerOpen) closeFileManager();
     else toggleLauncher(false);
@@ -435,5 +554,10 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 15000);
 refreshSystemDashboard();
-setInterval(refreshSystemDashboard, 10000);
+setInterval(() => {
+  if (!document.hidden) refreshSystemDashboard();
+}, 20000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshSystemDashboard();
+});
 
