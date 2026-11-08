@@ -278,12 +278,12 @@ mod tests {
     fn logical_drive_mask_includes_only_assigned_drive_letters() {
         let roots = super::logical_drive_roots(0b1_0100);
 
-        assert_eq!(roots, vec![PathBuf::from(r"C:\\"), PathBuf::from(r"E:\\")]);
+        assert_eq!(roots, vec![PathBuf::from(r"C:\"), PathBuf::from(r"E:\")]);
     }
 
     #[test]
     fn this_pc_virtual_listing_contains_each_assigned_drive() {
-        let roots = vec![PathBuf::from(r"C:\\"), PathBuf::from(r"D:\\")];
+        let roots = vec![PathBuf::from(r"C:\"), PathBuf::from(r"D:\")];
 
         let listing = super::this_pc_listing_from_roots(&roots);
 
