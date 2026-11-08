@@ -1,5 +1,10 @@
 use serde::Serialize;
-use sysinfo::{Disks, System};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use sysinfo::{DiskRefreshKind, Disks, System};
+use tauri::State;
+
+const DISK_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Serialize)]
 pub struct DiskSnapshot {
@@ -19,12 +24,62 @@ pub struct SystemSnapshot {
     pub disks: Vec<DiskSnapshot>,
 }
 
-#[tauri::command]
-pub fn get_system_snapshot() -> SystemSnapshot {
-    let mut system = System::new();
-    system.refresh_memory();
+pub struct SystemInfoState {
+    collector: Mutex<SystemInfoCollector>,
+}
 
-    let disks = Disks::new_with_refreshed_list()
+struct SystemInfoCollector {
+    system: System,
+    disks: Disks,
+    last_disk_refresh: Option<Instant>,
+}
+
+impl SystemInfoState {
+    pub fn new() -> Self {
+        Self {
+            collector: Mutex::new(SystemInfoCollector {
+                // Keep a single lightweight System instance. It is never asked
+                // to enumerate processes or CPU usage.
+                system: System::new(),
+                disks: Disks::new(),
+                last_disk_refresh: None,
+            }),
+        }
+    }
+}
+
+fn disk_refresh_due(last_refresh: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(last_refresh) >= DISK_REFRESH_INTERVAL
+}
+
+#[tauri::command]
+pub fn get_system_snapshot(state: State<'_, SystemInfoState>) -> Result<SystemSnapshot, String> {
+    let mut collector = state
+        .collector
+        .lock()
+        .map_err(|_| "System information is temporarily unavailable.".to_string())?;
+
+    collector.system.refresh_memory();
+
+    let now = Instant::now();
+    let should_refresh_disks = collector
+        .last_disk_refresh
+        .map(|last_refresh| disk_refresh_due(last_refresh, now))
+        .unwrap_or(true);
+
+    if should_refresh_disks {
+        // Storage figures change slowly. Refresh only capacity fields, and
+        // avoid rebuilding the disk collector on every dashboard update.
+        collector.disks.refresh_specifics(
+            true,
+            DiskRefreshKind::nothing().with_storage(),
+        );
+        collector.last_disk_refresh = Some(now);
+    }
+
+    let disks = collector
+        .disks
+        .list()
         .iter()
         .map(|disk| DiskSnapshot {
             name: disk.mount_point().display().to_string(),
@@ -33,17 +88,17 @@ pub fn get_system_snapshot() -> SystemSnapshot {
         })
         .collect();
 
-    SystemSnapshot {
+    Ok(SystemSnapshot {
         computer_name: System::host_name(),
         os_version: System::long_os_version(),
         cpu_arch: Some(System::cpu_arch()),
         logical_threads: std::thread::available_parallelism()
             .map(|count| count.get())
             .unwrap_or(0),
-        total_memory: system.total_memory(),
-        used_memory: system.used_memory(),
+        total_memory: collector.system.total_memory(),
+        used_memory: collector.system.used_memory(),
         disks,
-    }
+    })
 }
 
 #[cfg(test)]
