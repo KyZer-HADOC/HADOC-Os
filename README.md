@@ -20,7 +20,7 @@ HADOC OS is an early preview. The custom desktop shell is in progress and the fi
 - **Gaming / Low Resource mode** pauses HADOC dashboard monitoring and removes nonessential blur, ambient effects and animations.
 - Automatic low-effects presentation on systems with two or fewer logical threads or 4 GiB RAM or less.
 - A separate shortcut for the native Windows File Explorer.
-- **Game Center** with a saved local game library, Start Menu game-shortcut discovery, per-game Balanced/Gaming presets and a one-click game launcher.
+- **Game Center** with a saved local game library, Start Menu game-shortcut discovery, per-game Balanced/Gaming presets (the Gaming preset only reduces HADOC activity; it does not change game process priority) and a one-click game launcher.
 - **Quick Hardware Benchmark** for measured single/multi-thread CPU throughput, memory copy bandwidth and sequential disk read/write. Temporary disk test files are removed.
 
 The built-in File Manager does not delete, move, rename, copy or edit files. It lists folders and files and opens selected items using their normal Windows application.

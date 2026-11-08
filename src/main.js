@@ -229,6 +229,7 @@ async function launch(action) {
 
 
 async function openGameCenter() {
+  if (fileManagerOpen) closeFileManager();
   gameCenterOpen = true;
   document.querySelector("#game-center").classList.remove("hidden");
   await refreshGameLibrary();
@@ -379,7 +380,7 @@ async function launchSelectedGame() {
   try {
     const result = await invoke("launch_game", { id: game.id });
     closeGameCenter();
-    if (game.profile === "gaming") setGamingMode(true);
+    setGamingMode(game.profile === "gaming");
     toast(result || `Launching ${game.name}…`);
   } catch (error) {
     toast(String(error));
@@ -699,6 +700,7 @@ async function loadMoreDirectoryEntries() {
 }
 
 async function openFileManager() {
+  if (gameCenterOpen) closeGameCenter();
   fileManagerOpen = true;
   document.querySelector("#file-manager").classList.remove("hidden");
   document.querySelector("#fm-filter").value = "";

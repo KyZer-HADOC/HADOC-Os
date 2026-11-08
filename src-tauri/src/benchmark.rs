@@ -6,7 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CPU_SAMPLE_DURATION: Duration = Duration::from_millis(180);
-const MEMORY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+const MEMORY_BUFFER_BYTES: usize = 8 * 1024 * 1024;
 const MEMORY_PASSES: usize = 8;
 const DISK_SAMPLE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -60,7 +60,7 @@ fn memory_copy_sample(buffer_bytes: usize, passes: usize) -> f64 {
         std::hint::black_box(destination.as_slice());
     }
     let elapsed = start.elapsed().as_secs_f64().max(0.000_001);
-    (buffer_bytes as f64 * passes as f64 / (1024.0 * 1024.0)) / elapsed
+    (buffer_bytes as f64 * passes as f64 * 2.0 / (1024.0 * 1024.0)) / elapsed
 }
 
 fn disk_sample(directory: &Path, bytes: usize) -> Result<DiskSample, String> {
@@ -156,7 +156,7 @@ fn run_benchmark() -> Result<BenchmarkResult, String> {
         disk_write_mb_s: disk.write_mb_s,
         disk_read_mb_s: disk.read_mb_s,
         duration_ms: total_start.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        disk_read_note: "Sequential read; may include Windows file cache".into(),
+        disk_read_note: "Sequential read; may include Windows file cache when available".into(),
     })
 }
 
@@ -170,7 +170,6 @@ pub async fn run_quick_benchmark() -> Result<BenchmarkResult, String> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -196,6 +195,5 @@ mod tests {
         assert!(sample.read_mb_s.is_finite() && sample.read_mb_s > 0.0);
         assert_eq!(fs::read_dir(&folder).unwrap().count(), 0);
         fs::remove_dir(&folder).unwrap();
-        let _: Option<PathBuf> = None;
     }
 }

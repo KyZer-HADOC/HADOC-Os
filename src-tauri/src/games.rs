@@ -246,13 +246,17 @@ fn launch_windows_target(path: &Path) -> Result<(), String> {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
+        let directory = path
+            .parent()
+            .map(|parent| parent.as_os_str().encode_wide().chain(std::iter::once(0)).collect::<Vec<u16>>());
+        let directory_pointer = directory.as_ref().map_or(ptr::null(), |value| value.as_ptr());
         let result = unsafe {
             ShellExecuteW(
                 ptr::null_mut(),
                 operation.as_ptr(),
                 target.as_ptr(),
                 ptr::null(),
-                ptr::null(),
+                directory_pointer,
                 1,
             )
         };
@@ -377,4 +381,32 @@ pub fn launch_game(id: String, state: State<'_, GameLibraryState>) -> Result<Str
     }
     launch_windows_target(&path)?;
     Ok(format!("Launching {}…", game.name))
+
+    #[test]
+    fn game_library_persists_profile_choices_between_loads() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let folder = std::env::temp_dir().join(format!("hadoc-game-library-{unique}"));
+        let store_path = folder.join("games.json");
+        let state = super::GameLibraryState::new(store_path.clone()).unwrap();
+        let entry = super::GameEntry::for_test(
+            "Test Game",
+            "C:/Games/test-game.exe",
+            super::GameProfile::Gaming,
+        );
+
+        state.persist(&[entry]).unwrap();
+        drop(state);
+
+        let reloaded = super::GameLibraryState::new(store_path).unwrap();
+        let entries = reloaded.entries.lock().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "Test Game");
+        assert_eq!(entries[0].profile.as_str(), "gaming");
+        drop(entries);
+        drop(reloaded);
+        fs::remove_dir_all(folder).unwrap();
+    }
 }
