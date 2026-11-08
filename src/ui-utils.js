@@ -62,3 +62,13 @@ export function isLowResourceDevice(snapshot) {
 export function shouldRefreshDashboard({ documentHidden = false, gamingMode = false } = {}) {
   return !documentHidden && !gamingMode;
 }
+
+
+export function gameProfileLabel(profile) {
+  return profile === "gaming" ? "Gaming / Low Resource" : "Balanced";
+}
+
+export function formatBenchmarkMetric(value, unit) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "Unavailable";
+  return `${value.toFixed(1)} ${unit}`;
+}

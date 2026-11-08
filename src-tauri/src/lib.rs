@@ -38,9 +38,11 @@ fn launch_windows_app(app: String) -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_platform_info, launch_windows_app, file_manager::list_directory, file_manager::get_quick_locations, file_manager::open_path, system_info::get_system_snapshot])
+        .invoke_handler(tauri::generate_handler![get_platform_info, launch_windows_app, file_manager::list_directory, file_manager::get_quick_locations, file_manager::open_path, system_info::get_system_snapshot, games::get_games, games::add_game, games::set_game_profile, games::remove_game, games::discover_games, games::launch_game, benchmark::run_quick_benchmark])
         .setup(|app| {
             app.manage(system_info::SystemInfoState::new());
+            let game_store = app.path().app_data_dir()?.join("games.json");
+            app.manage(games::GameLibraryState::new(game_store)?);
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();
