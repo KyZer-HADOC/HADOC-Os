@@ -36,7 +36,7 @@ fn launch_windows_app(app: String) -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_platform_info, launch_windows_app, file_manager::list_directory, file_manager::get_quick_locations, file_manager::open_path])
+        .invoke_handler(tauri::generate_handler![get_platform_info, launch_windows_app, file_manager::list_directory, file_manager::get_quick_locations, file_manager::open_path, system_info::get_system_snapshot])
         .setup(|app| {
             #[cfg(debug_assertions)]
             {
