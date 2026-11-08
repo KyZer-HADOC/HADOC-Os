@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn drive_root_parent_is_this_pc() {
         assert_eq!(
-            super::parent_for_directory(Path::new(r"C:\\")),
+            super::parent_for_directory(Path::new(r"C:\")),
             Some(super::THIS_PC_PATH.to_string())
         );
     }
