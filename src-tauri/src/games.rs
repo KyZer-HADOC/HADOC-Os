@@ -182,7 +182,8 @@ fn discover_from_root(root: &Path, candidates: &mut Vec<GameCandidate>, visited:
             let Some(name) = path.file_stem().and_then(|value| value.to_str()) else {
                 continue;
             };
-            if !is_game_candidate(name) {
+            let name = name.to_string();
+            if !is_game_candidate(&name) {
                 continue;
             }
 
@@ -194,7 +195,7 @@ fn discover_from_root(root: &Path, candidates: &mut Vec<GameCandidate>, visited:
             }
             visited.push(key);
             candidates.push(GameCandidate {
-                name: name.to_string(),
+                name,
                 path: path_text,
             });
         }
