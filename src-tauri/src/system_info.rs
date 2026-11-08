@@ -88,4 +88,20 @@ mod tests {
         assert_eq!(value["logical_threads"], 0);
         assert_eq!(value["disks"], serde_json::json!([]));
     }
+
+    #[test]
+    fn disk_refresh_is_throttled_until_the_interval_has_elapsed() {
+        use std::time::{Duration, Instant};
+
+        let last_refresh = Instant::now();
+
+        assert!(!super::disk_refresh_due(
+            last_refresh,
+            last_refresh + Duration::from_secs(29)
+        ));
+        assert!(super::disk_refresh_due(
+            last_refresh,
+            last_refresh + Duration::from_secs(30)
+        ));
+    }
 }
