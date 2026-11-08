@@ -3,23 +3,32 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-#[derive(Debug, Serialize)]
+pub const THIS_PC_PATH: &str = "__HADOC_THIS_PC__";
+const DEFAULT_PAGE_SIZE: usize = 200;
+const MAX_PAGE_SIZE: usize = 500;
+
+#[derive(Debug, Clone, Serialize)]
 pub struct FileEntry {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
+    pub is_hidden: bool,
     pub size: Option<u64>,
     pub modified: Option<u64>,
+    pub extension: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DirectoryListing {
     pub path: String,
     pub parent: Option<String>,
     pub entries: Vec<FileEntry>,
+    pub total_entries: usize,
+    pub next_offset: usize,
+    pub has_more: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct QuickLocation {
     pub name: String,
     pub path: String,
@@ -27,7 +36,274 @@ pub struct QuickLocation {
     pub group: String,
 }
 
-fn read_directory(path: &Path) -> Result<DirectoryListing, String> {
+#[derive(Debug)]
+struct DirectoryItem {
+    name: String,
+    path: PathBuf,
+    is_dir: bool,
+}
+
+pub fn bounded_page_limit(limit: Option<usize>) -> usize {
+    limit.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE)
+}
+
+fn normalized_location_path(path: &str) -> String {
+    path.replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase()
+}
+
+fn push_existing_location(
+    locations: &mut Vec<QuickLocation>,
+    name: &str,
+    path: &Path,
+    icon: &str,
+    group: &str,
+) {
+    if !path.is_dir() {
+        return;
+    }
+
+    let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let display_path = resolved.to_string_lossy().into_owned();
+    let key = normalized_location_path(&display_path);
+
+    if locations
+        .iter()
+        .any(|location| normalized_location_path(&location.path) == key)
+    {
+        return;
+    }
+
+    locations.push(QuickLocation {
+        name: name.to_string(),
+        path: display_path,
+        icon: icon.to_string(),
+        group: group.to_string(),
+    });
+}
+
+fn push_environment_location(
+    locations: &mut Vec<QuickLocation>,
+    variable: &str,
+    name: &str,
+    icon: &str,
+    group: &str,
+) {
+    if let Some(path) = std::env::var_os(variable) {
+        push_existing_location(locations, name, &PathBuf::from(path), icon, group);
+    }
+}
+
+fn home_directory() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+}
+
+fn current_logical_drive_mask() -> u32 {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetLogicalDrives() -> u32;
+        }
+
+        // GetLogicalDrives returns a bit for each currently assigned drive
+        // letter. It avoids probing every possible letter (which can block on
+        // stale mapped network drives).
+        unsafe { GetLogicalDrives() }
+    }
+
+    #[cfg(not(windows))]
+    {
+        0
+    }
+}
+
+fn logical_drive_roots(mask: u32) -> Vec<PathBuf> {
+    (0..26)
+        .filter(|index| mask & (1u32 << index) != 0)
+        .map(|index| PathBuf::from(format!("{}:\\", (b'A' + index as u8) as char)))
+        .collect()
+}
+
+fn drive_entry(root: &Path) -> FileEntry {
+    let path = root.to_string_lossy().into_owned();
+    let trimmed = path.trim_end_matches('\\').trim_end_matches('/');
+    let name = trimmed
+        .rsplit(|character| character == '\\' || character == '/')
+        .next()
+        .unwrap_or(trimmed)
+        .to_string();
+
+    FileEntry {
+        name,
+        path,
+        is_dir: true,
+        is_hidden: false,
+        size: None,
+        modified: None,
+        extension: None,
+    }
+}
+
+fn this_pc_listing_from_roots(roots: &[PathBuf]) -> DirectoryListing {
+    let mut entries = roots.iter().map(|root| drive_entry(root)).collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.name.cmp(&right.name));
+    let total_entries = entries.len();
+
+    DirectoryListing {
+        path: THIS_PC_PATH.to_string(),
+        parent: None,
+        entries,
+        total_entries,
+        next_offset: total_entries,
+        has_more: false,
+    }
+}
+
+fn page_virtual_listing(
+    mut listing: DirectoryListing,
+    offset: usize,
+    limit: usize,
+    query: Option<&str>,
+) -> DirectoryListing {
+    if let Some(query) = query.map(str::trim).filter(|query| !query.is_empty()) {
+        let needle = query.to_lowercase();
+        listing
+            .entries
+            .retain(|entry| entry.name.to_lowercase().contains(&needle));
+    }
+
+    let total_entries = listing.entries.len();
+    let start = offset.min(total_entries);
+    let end = start.saturating_add(limit).min(total_entries);
+    let entries = listing.entries.drain(start..end).collect();
+
+    DirectoryListing {
+        path: listing.path,
+        parent: listing.parent,
+        entries,
+        total_entries,
+        next_offset: end,
+        has_more: end < total_entries,
+    }
+}
+
+fn this_pc_listing() -> DirectoryListing {
+    this_pc_listing_from_roots(&logical_drive_roots(current_logical_drive_mask()))
+}
+
+fn get_quick_locations_sync() -> Vec<QuickLocation> {
+    let mut locations = vec![QuickLocation {
+        name: "This PC".to_string(),
+        path: THIS_PC_PATH.to_string(),
+        icon: "▰".to_string(),
+        group: "Computer".to_string(),
+    }];
+
+    if let Some(home) = home_directory() {
+        push_existing_location(&mut locations, "Home", &home, "⌂", "User folders");
+
+        let folders = [
+            ("Desktop", "Desktop", "▣"),
+            ("Documents", "Documents", "▤"),
+            ("Downloads", "Downloads", "⇩"),
+            ("Pictures", "Pictures", "▧"),
+            ("Music", "Music", "♫"),
+            ("Videos", "Videos", "▶"),
+            ("Saved Games", "Saved Games", "◇"),
+            ("Links", "Links", "↗"),
+            ("Contacts", "Contacts", "♙"),
+            ("Searches", "Searches", "⌕"),
+        ];
+
+        for (name, folder, icon) in folders {
+            push_existing_location(
+                &mut locations,
+                name,
+                &home.join(folder),
+                icon,
+                "User folders",
+            );
+        }
+    }
+
+    let environment_locations = [
+        ("OneDrive", "OneDrive", "☁", "Cloud"),
+        ("OneDriveCommercial", "OneDrive (Work)", "☁", "Cloud"),
+        ("OneDriveConsumer", "OneDrive (Personal)", "☁", "Cloud"),
+        ("APPDATA", "AppData · Roaming", "⚙", "Windows folders"),
+        ("LOCALAPPDATA", "AppData · Local", "⚙", "Windows folders"),
+        ("TEMP", "Temporary files", "◷", "Windows folders"),
+        ("PUBLIC", "Public", "♧", "Windows folders"),
+        ("ProgramFiles", "Program Files", "▤", "Windows folders"),
+        ("ProgramW6432", "Program Files (64-bit)", "▤", "Windows folders"),
+        ("ProgramFiles(x86)", "Program Files (x86)", "▤", "Windows folders"),
+        ("ProgramData", "ProgramData", "▤", "Windows folders"),
+        ("windir", "Windows", "▣", "Windows folders"),
+        ("SystemRoot", "System Root", "▣", "Windows folders"),
+    ];
+
+    for (variable, name, icon, group) in environment_locations {
+        push_environment_location(&mut locations, variable, name, icon, group);
+    }
+
+    if let Some(windows) = std::env::var_os("windir").or_else(|| std::env::var_os("SystemRoot")) {
+        push_existing_location(
+            &mut locations,
+            "System32",
+            &PathBuf::from(windows).join("System32"),
+            "▣",
+            "Windows folders",
+        );
+    }
+
+    for root in logical_drive_roots(current_logical_drive_mask()) {
+        let drive = drive_entry(&root);
+        let key = normalized_location_path(&drive.path);
+        if !locations
+            .iter()
+            .any(|location| normalized_location_path(&location.path) == key)
+        {
+            locations.push(QuickLocation {
+                name: drive.name.clone(),
+                path: drive.path,
+                icon: "▰".to_string(),
+                group: "Drives".to_string(),
+            });
+        }
+    }
+
+    locations
+}
+
+fn is_hidden_name(name: &str, windows_attributes: Option<u32>) -> bool {
+    name.starts_with('.')
+        || windows_attributes.is_some_and(|attributes| attributes & 0x2 != 0)
+}
+
+fn windows_attributes(metadata: Option<&fs::Metadata>) -> Option<u32> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.map(MetadataExt::file_attributes)
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = metadata;
+        None
+    }
+}
+
+fn read_directory_page(
+    path: &Path,
+    offset: usize,
+    limit: usize,
+    query: Option<&str>,
+) -> Result<DirectoryListing, String> {
     let canonical = path
         .canonicalize()
         .map_err(|error| format!("Cannot access {}: {error}", path.display()))?;
@@ -36,30 +312,39 @@ fn read_directory(path: &Path) -> Result<DirectoryListing, String> {
         return Err(format!("{} is not a folder.", canonical.display()));
     }
 
-    let mut entries = Vec::new();
+    let needle = query
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_lowercase);
+
+    // Read entry names and directory flags first. File size and timestamps are
+    // queried only for the page the UI is about to display.
+    let mut items = Vec::new();
     let directory = fs::read_dir(&canonical)
         .map_err(|error| format!("Cannot read {}: {error}", canonical.display()))?;
 
     for entry in directory {
         let Ok(entry) = entry else { continue };
         let entry_path = entry.path();
-        let Ok(metadata) = entry.metadata() else { continue };
-        let modified = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-            .map(|duration| duration.as_secs());
+        let Ok(file_type) = entry.file_type() else { continue };
+        let is_dir = file_type.is_dir() || (file_type.is_symlink() && entry_path.is_dir());
+        let name = entry.file_name().to_string_lossy().into_owned();
 
-        entries.push(FileEntry {
-            name: entry.file_name().to_string_lossy().into_owned(),
-            path: entry_path.to_string_lossy().into_owned(),
-            is_dir: metadata.is_dir(),
-            size: if metadata.is_file() { Some(metadata.len()) } else { None },
-            modified,
+        if needle
+            .as_ref()
+            .is_some_and(|needle| !name.to_lowercase().contains(needle))
+        {
+            continue;
+        }
+
+        items.push(DirectoryItem {
+            name,
+            path: entry_path,
+            is_dir,
         });
     }
 
-    entries.sort_by(|left, right| {
+    items.sort_by(|left, right| {
         right
             .is_dir
             .cmp(&left.is_dir)
@@ -67,75 +352,88 @@ fn read_directory(path: &Path) -> Result<DirectoryListing, String> {
             .then_with(|| left.name.cmp(&right.name))
     });
 
+    let total_entries = items.len();
+    let start = offset.min(total_entries);
+    let end = start.saturating_add(limit).min(total_entries);
+    let mut entries = Vec::with_capacity(end.saturating_sub(start));
+
+    for item in items.drain(start..end) {
+        let metadata = fs::metadata(&item.path).ok();
+        let hidden = is_hidden_name(&item.name, windows_attributes(metadata.as_ref()));
+        let modified = metadata
+            .as_ref()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs());
+        let size = metadata
+            .as_ref()
+            .filter(|metadata| metadata.is_file())
+            .map(fs::Metadata::len);
+        let extension = Path::new(&item.name)
+            .extension()
+            .map(|extension| extension.to_string_lossy().to_ascii_lowercase());
+
+        entries.push(FileEntry {
+            name: item.name,
+            path: item.path.to_string_lossy().into_owned(),
+            is_dir: item.is_dir,
+            is_hidden: hidden,
+            size,
+            modified,
+            extension,
+        });
+    }
+
     Ok(DirectoryListing {
         path: canonical.to_string_lossy().into_owned(),
-        parent: canonical.parent().map(|parent| parent.to_string_lossy().into_owned()),
+        parent: canonical
+            .parent()
+            .map(|parent| parent.to_string_lossy().into_owned()),
         entries,
+        total_entries,
+        next_offset: end,
+        has_more: end < total_entries,
     })
 }
 
 #[tauri::command]
-pub fn list_directory(path: Option<String>) -> Result<DirectoryListing, String> {
-    let target = match path {
-        Some(path) if !path.trim().is_empty() => PathBuf::from(path),
-        Some(_) => return Err("Enter a folder path.".into()),
-        None => default_home_directory()?,
-    };
+pub async fn list_directory(
+    path: Option<String>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    query: Option<String>,
+) -> Result<DirectoryListing, String> {
+    let offset = offset.unwrap_or(0);
+    let limit = bounded_page_limit(limit);
 
-    read_directory(&target)
+    tauri::async_runtime::spawn_blocking(move || {
+        if path.as_deref().is_none_or(|path| path == THIS_PC_PATH) {
+            return Ok(page_virtual_listing(
+                this_pc_listing(),
+                offset,
+                limit,
+                query.as_deref(),
+            ));
+        }
+
+        let Some(path) = path else {
+            return Ok(this_pc_listing());
+        };
+        if path.trim().is_empty() {
+            return Err("Enter a folder path.".to_string());
+        }
+
+        read_directory_page(Path::new(&path), offset, limit, query.as_deref())
+    })
+    .await
+    .map_err(|error| format!("File Manager operation failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn get_quick_locations() -> Vec<QuickLocation> {
-    let Some(home) = home_directory() else {
-        return Vec::new();
-    };
-
-    let mut locations = Vec::new();
-    if home.is_dir() {
-        locations.push(QuickLocation {
-            name: "Home".into(),
-            path: home.to_string_lossy().into_owned(),
-            icon: "⌂".into(),
-            group: "Places".into(),
-        });
-    }
-
-    let folders = [
-        ("Desktop", "Desktop", "▣"),
-        ("Documents", "Documents", "▤"),
-        ("Downloads", "Downloads", "⇩"),
-        ("Pictures", "Pictures", "▧"),
-        ("Music", "Music", "♫"),
-        ("Videos", "Videos", "▶"),
-    ];
-
-    for (name, folder, icon) in folders {
-        let candidate = home.join(folder);
-        if candidate.is_dir() {
-            locations.push(QuickLocation {
-                name: name.into(),
-                path: candidate.to_string_lossy().into_owned(),
-                icon: icon.into(),
-                group: "Places".into(),
-            });
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    for letter in b'A'..=b'Z' {
-        let drive = PathBuf::from(format!("{}:\\", letter as char));
-        if drive.is_dir() {
-            locations.push(QuickLocation {
-                name: format!("{}:", letter as char),
-                path: drive.to_string_lossy().into_owned(),
-                icon: "▰".into(),
-                group: "Drives".into(),
-            });
-        }
-    }
-
-    locations
+pub async fn get_quick_locations() -> Vec<QuickLocation> {
+    tauri::async_runtime::spawn_blocking(get_quick_locations_sync)
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -165,7 +463,8 @@ pub fn open_path(path: String) -> Result<(), String> {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        let target_wide: Vec<u16> = target.as_os_str()
+        let target_wide: Vec<u16> = target
+            .as_os_str()
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
@@ -194,19 +493,9 @@ pub fn open_path(path: String) -> Result<(), String> {
     }
 }
 
-fn home_directory() -> Option<PathBuf> {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
-}
-
-fn default_home_directory() -> Result<PathBuf, String> {
-    home_directory().ok_or_else(|| "Windows user folder could not be found.".into())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::read_directory;
+    use super::read_directory_page;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -245,7 +534,7 @@ mod tests {
         fs::write(temp.path().join("b.txt"), b"12345").unwrap();
         fs::write(temp.path().join("a.txt"), b"abc").unwrap();
 
-        let listing = read_directory(temp.path()).unwrap();
+        let listing = read_directory_page(temp.path(), 0, 100, None).unwrap();
 
         assert_eq!(listing.entries.len(), 3);
         assert_eq!(listing.entries[0].name, "z-folder");
@@ -262,14 +551,14 @@ mod tests {
         let file = temp.path().join("not-a-folder.txt");
         fs::write(&file, b"data").unwrap();
 
-        assert!(read_directory(&file).is_err());
+        assert!(read_directory_page(&file, 0, 100, None).is_err());
     }
 
     #[test]
     fn read_directory_returns_an_empty_list_for_an_empty_folder() {
         let temp = TempDirectory::new();
 
-        let listing = read_directory(temp.path()).unwrap();
+        let listing = read_directory_page(temp.path(), 0, 100, None).unwrap();
 
         assert!(listing.entries.is_empty());
     }
