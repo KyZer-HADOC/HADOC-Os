@@ -3,7 +3,7 @@ use tauri::Manager;
 
 #[tauri::command]
 fn get_platform_info() -> String {
-    std::env::var("OS").unwrap_or_else(|_| "Windows".to_string())
+    "Windows 10 / 11".to_string()
 }
 
 #[tauri::command]
