@@ -42,7 +42,7 @@ pub fn run() {
         .setup(|app| {
             app.manage(system_info::SystemInfoState::new());
             let game_store = app.path().app_data_dir()?.join("games.json");
-            app.manage(games::GameLibraryState::new(game_store)?);
+            app.manage(games::GameLibraryState::new(game_store).map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?);
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();

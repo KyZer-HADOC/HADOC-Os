@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { escapeHtml, formatBytes } from "../src/ui-utils.js";
+import { escapeHtml, formatBytes, gameProfileLabel, formatBenchmarkMetric } from "../src/ui-utils.js";
 
 test("escapeHtml renders markup characters as plain text", () => {
   assert.equal(
@@ -80,9 +80,6 @@ test("shouldRefreshDashboard pauses monitoring while hidden or gaming", () => {
   assert.equal(shouldRefreshDashboard({ documentHidden: false, gamingMode: false }), true);
 });
 
-import test from "node:test";
-import assert from "node:assert/strict";
-import { gameProfileLabel, formatBenchmarkMetric } from "../src/ui-utils.js";
 
 test("gameProfileLabel names balanced and low-resource game presets", () => {
   assert.equal(gameProfileLabel("balanced"), "Balanced");

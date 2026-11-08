@@ -8,6 +8,10 @@ const win = getCurrentWindow();
 
 let startOpen = false;
 let fileManagerOpen = false;
+let gameCenterOpen = false;
+let gameEntries = [];
+let discoveredGames = [];
+let selectedGameId = null;
 let gamingMode = false;
 let lowResourcePresentation = false;
 let systemRefreshInFlight = false;
@@ -32,7 +36,8 @@ const apps = [
   { name: "Task Manager", icon: "▥", desc: "System processes", action: "taskmgr" },
   { name: "Notepad", icon: "▧", desc: "Quick notes", action: "notepad" },
   { name: "Browser", icon: "◎", desc: "Open your default browser", action: "browser" },
-  { name: "Windows Explorer", icon: "▣", desc: "Open the Windows file explorer", action: "explorer" }
+  { name: "Windows Explorer", icon: "▣", desc: "Open the Windows file explorer", action: "explorer" },
+  { name: "Game Center", icon: "🎮", desc: "Game library and hardware benchmarks", action: "gamecenter" }
 ];
 
 app.innerHTML = `
@@ -50,7 +55,7 @@ app.innerHTML = `
         <div class="eyebrow"><span></span> YOUR WINDOWS. REIMAGINED.</div>
         <h1>Welcome to<br><em>HADOC OS.</em></h1>
         <p>A cleaner space for everything you do.<br>Fast, focused and built around your Windows PC.</p>
-        <div class="hero-actions"><button class="primary" id="open-start">Open launcher <b>↗</b></button><button class="ghost" id="full">Immersive mode ⛶</button><button class="ghost gaming-toggle" id="gaming-mode" type="button" aria-pressed="false">Gaming mode: Off</button></div>
+        <div class="hero-actions"><button class="primary" id="open-start">Open launcher <b>↗</b></button><button class="ghost" id="full">Immersive mode ⛶</button><button class="ghost" id="open-game-center">Game Center 🎮</button><button class="ghost gaming-toggle" id="gaming-mode" type="button" aria-pressed="false">Gaming mode: Off</button></div>
       </div>
       <div class="orb-wrap"><div class="orb-ring ring-a"></div><div class="orb-ring ring-b"></div><div class="orb"><span>H</span></div><div class="orb-caption">DESIGNED TO FEEL<br><strong>LIKE YOURS.</strong></div></div>
     </section>
@@ -110,6 +115,77 @@ app.innerHTML = `
         <footer class="fm-footer"><span id="fm-status">Connecting to Windows...</span><span>HADOC OS · Read-only browsing</span></footer>
       </div>
     </section>
+
+    <section class="game-center hidden" id="game-center" aria-label="HADOC Game Center">
+      <div class="gc-backdrop" id="gc-backdrop"></div>
+      <div class="gc-window" role="dialog" aria-modal="true" aria-labelledby="gc-title">
+        <header class="gc-header">
+          <div class="gc-mark">H</div>
+          <div class="gc-heading"><small>HADOC OS / PERFORMANCE SUITE</small><strong id="gc-title">Game Center</strong></div>
+          <span class="gc-safe-label">NO OS OR DRIVER TWEAKS</span>
+          <button class="fm-close" id="gc-close" aria-label="Close Game Center">×</button>
+        </header>
+        <nav class="gc-tabs" aria-label="Game Center sections">
+          <button class="gc-tab active" data-gc-tab="library" type="button">Game Library</button>
+          <button class="gc-tab" data-gc-tab="benchmark" type="button">Hardware Benchmark</button>
+        </nav>
+        <section class="gc-panel" id="gc-library-panel">
+          <div class="gc-library-layout">
+            <aside class="gc-game-sidebar">
+              <div class="gc-sidebar-head"><div><small>YOUR COLLECTION</small><strong id="gc-game-count">0 games</strong></div><button id="gc-scan" type="button">Detect</button></div>
+              <div id="gc-games-list" class="gc-games-list"><div class="gc-empty">Loading saved games…</div></div>
+            </aside>
+            <div class="gc-content">
+              <div id="gc-selected-empty" class="gc-selected-empty">
+                <span class="gc-big-icon">🎮</span>
+                <strong>Select a game</strong>
+                <p>Add a game executable or detect a game shortcut from your Windows Start Menu.</p>
+              </div>
+              <div id="gc-game-detail" class="gc-game-detail hidden">
+                <div class="gc-selected-heading"><div><small>SELECTED GAME</small><h2 id="gc-selected-name">Game</h2><p id="gc-selected-path"></p></div><span class="gc-selected-chip">LOCAL ENTRY</span></div>
+                <div class="gc-profile-card">
+                  <label for="gc-game-profile">PER-GAME HADOC PROFILE</label>
+                  <select id="gc-game-profile">
+                    <option value="gaming">Gaming / Low Resource</option>
+                    <option value="balanced">Balanced</option>
+                  </select>
+                  <p id="gc-profile-description">Pauses HADOC dashboard work and removes expensive effects while the game is running.</p>
+                </div>
+                <div class="gc-game-actions">
+                  <button id="gc-launch-game" class="gc-primary" type="button">Launch game ↗</button>
+                  <button id="gc-save-profile" class="gc-secondary" type="button">Save profile</button>
+                  <button id="gc-remove-game" class="gc-danger" type="button">Remove entry</button>
+                </div>
+              </div>
+              <div class="gc-add-card">
+                <div class="gc-add-title"><strong>Add a game manually</strong><small>Use the full path to a .exe, .lnk or .url file</small></div>
+                <form id="gc-add-form" class="gc-add-form">
+                  <input id="gc-add-name" type="text" maxlength="80" placeholder="Game name (optional)" aria-label="Game name">
+                  <input id="gc-add-path" type="text" required placeholder="C:\Games\Example\Game.exe" aria-label="Game executable or shortcut path">
+                  <select id="gc-add-profile" aria-label="Default game profile">
+                    <option value="gaming">Gaming / Low Resource</option>
+                    <option value="balanced">Balanced</option>
+                  </select>
+                  <button class="gc-primary" type="submit">Add to library</button>
+                </form>
+              </div>
+              <div class="gc-discovery-card">
+                <div class="gc-add-title"><strong>Detected shortcuts</strong><small>Only scans Start Menu shortcuts when you ask</small></div>
+                <div id="gc-discovered-list" class="gc-discovered-list"><span class="gc-muted">Select Detect to look for known game launchers and titles.</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="gc-panel hidden" id="gc-benchmark-panel">
+          <div class="gc-benchmark-intro"><div><small>HARDWARE PERFORMANCE TEST</small><h2>Quick Benchmark</h2><p>Measures CPU throughput, memory copy bandwidth and sequential storage I/O. Temporary test data is removed afterwards.</p></div><button id="gc-run-benchmark" class="gc-primary" type="button">Run benchmark ▶</button></div>
+          <div id="gc-benchmark-status" class="gc-benchmark-status">Ready. Close other heavy apps for more consistent results.</div>
+          <div id="gc-benchmark-results" class="gc-benchmark-results">
+            <div class="gc-benchmark-placeholder">No benchmark results yet.</div>
+          </div>
+          <p class="gc-benchmark-footnote">Results are measurements, not an FPS prediction. Disk read results may include the Windows file cache. This test does not change drivers, services, registry settings or game processes.</p>
+        </section>
+      </div>
+    </section>
     <footer class="taskbar"><button class="start-button" id="task-start"><span class="mini-mark">H</span><span>HADOC</span></button><div class="taskbar-divider"></div><span class="taskbar-label">DESKTOP</span><div class="taskbar-right"><span class="host-label">RUNNING ON WINDOWS</span><span id="clock"></span></div></footer>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>`;
@@ -132,6 +208,11 @@ function toggleLauncher(force) {
 }
 
 async function launch(action) {
+  if (action === "gamecenter") {
+    toggleLauncher(false);
+    await openGameCenter();
+    return;
+  }
   if (action === "filemanager") {
     toggleLauncher(false);
     await openFileManager();
@@ -143,6 +224,221 @@ async function launch(action) {
     toast(result || "Opened.");
   } catch (error) {
     toast(String(error));
+  }
+}
+
+
+async function openGameCenter() {
+  gameCenterOpen = true;
+  document.querySelector("#game-center").classList.remove("hidden");
+  await refreshGameLibrary();
+}
+
+function closeGameCenter() {
+  gameCenterOpen = false;
+  document.querySelector("#game-center").classList.add("hidden");
+}
+
+function selectedGame() {
+  return gameEntries.find(game => game.id === selectedGameId) ?? null;
+}
+
+function renderGameLibrary() {
+  const list = document.querySelector("#gc-games-list");
+  list.replaceChildren();
+  setText("#gc-game-count", `${gameEntries.length} ${gameEntries.length === 1 ? "game" : "games"}`);
+
+  if (!gameEntries.length) {
+    const empty = document.createElement("div");
+    empty.className = "gc-empty";
+    empty.textContent = "No games saved yet.";
+    list.append(empty);
+  } else {
+    for (const game of gameEntries) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `gc-game-item${game.id === selectedGameId ? " active" : ""}`;
+      const icon = document.createElement("span");
+      icon.className = "gc-game-icon";
+      icon.textContent = "🎮";
+      const details = document.createElement("span");
+      details.className = "gc-game-item-copy";
+      const name = document.createElement("b");
+      name.textContent = game.name;
+      const profile = document.createElement("small");
+      profile.textContent = gameProfileLabel(game.profile);
+      details.append(name, profile);
+      button.append(icon, details);
+      button.addEventListener("click", () => {
+        selectedGameId = game.id;
+        renderGameLibrary();
+      });
+      list.append(button);
+    }
+  }
+
+  const selected = selectedGame();
+  document.querySelector("#gc-selected-empty").classList.toggle("hidden", Boolean(selected));
+  document.querySelector("#gc-game-detail").classList.toggle("hidden", !selected);
+  if (!selected) return;
+
+  setText("#gc-selected-name", selected.name);
+  setText("#gc-selected-path", selected.path);
+  document.querySelector("#gc-game-profile").value = selected.profile;
+  updateGameProfileDescription(selected.profile);
+}
+
+function updateGameProfileDescription(profile) {
+  setText(
+    "#gc-profile-description",
+    profile === "gaming"
+      ? "Pauses HADOC dashboard monitoring and removes HADOC visual effects. Does not change Windows services, drivers or game priority."
+      : "Keeps the normal HADOC desktop experience while the game is running."
+  );
+}
+
+async function refreshGameLibrary() {
+  try {
+    gameEntries = await invoke("get_games");
+    if (!gameEntries.some(game => game.id === selectedGameId)) {
+      selectedGameId = gameEntries[0]?.id ?? null;
+    }
+    renderGameLibrary();
+  } catch (error) {
+    setText("#gc-game-count", "Unavailable");
+    const list = document.querySelector("#gc-games-list");
+    list.textContent = String(error);
+  }
+}
+
+async function addGameToLibrary(name, path, profile = "gaming") {
+  try {
+    gameEntries = await invoke("add_game", { name, path, profile });
+    const added = gameEntries.find(game => game.path.toLowerCase() === path.toLowerCase());
+    selectedGameId = added?.id ?? gameEntries[0]?.id ?? null;
+    renderGameLibrary();
+    renderDiscoveredGames();
+    document.querySelector("#gc-add-name").value = "";
+    document.querySelector("#gc-add-path").value = "";
+    toast("Game added to HADOC Game Center.");
+  } catch (error) {
+    toast(String(error));
+  }
+}
+
+function renderDiscoveredGames() {
+  const container = document.querySelector("#gc-discovered-list");
+  container.replaceChildren();
+  const savedPaths = new Set(gameEntries.map(game => game.path.toLowerCase()));
+  const candidates = discoveredGames.filter(game => !savedPaths.has(game.path.toLowerCase()));
+
+  if (!candidates.length) {
+    const empty = document.createElement("span");
+    empty.className = "gc-muted";
+    empty.textContent = discoveredGames.length
+      ? "All detected games are already in your library."
+      : "No known game shortcuts found. You can add an executable path manually.";
+    container.append(empty);
+    return;
+  }
+
+  for (const candidate of candidates) {
+    const row = document.createElement("div");
+    row.className = "gc-discovered-row";
+    const name = document.createElement("span");
+    name.textContent = candidate.name;
+    const add = document.createElement("button");
+    add.type = "button";
+    add.textContent = "Add";
+    add.addEventListener("click", () => addGameToLibrary(candidate.name, candidate.path, "gaming"));
+    row.append(name, add);
+    container.append(row);
+  }
+}
+
+async function scanForGames() {
+  const button = document.querySelector("#gc-scan");
+  button.disabled = true;
+  button.textContent = "Scanning…";
+  setText("#gc-discovered-list", "Checking Start Menu shortcuts…");
+  try {
+    discoveredGames = await invoke("discover_games");
+    renderDiscoveredGames();
+  } catch (error) {
+    setText("#gc-discovered-list", String(error));
+  } finally {
+    button.disabled = false;
+    button.textContent = "Detect";
+  }
+}
+
+async function launchSelectedGame() {
+  const game = selectedGame();
+  if (!game) return;
+
+  try {
+    const result = await invoke("launch_game", { id: game.id });
+    closeGameCenter();
+    if (game.profile === "gaming") setGamingMode(true);
+    toast(result || `Launching ${game.name}…`);
+  } catch (error) {
+    toast(String(error));
+  }
+}
+
+function setGameCenterTab(tab) {
+  const library = tab === "library";
+  document.querySelector("#gc-library-panel").classList.toggle("hidden", !library);
+  document.querySelector("#gc-benchmark-panel").classList.toggle("hidden", library);
+  document.querySelectorAll("[data-gc-tab]").forEach(button => {
+    button.classList.toggle("active", button.dataset.gcTab === tab);
+  });
+}
+
+function renderBenchmarkResults(result) {
+  const metrics = [
+    ["CPU · Single thread", result.cpu_single_m_iterations_s, "M iterations/s"],
+    ["CPU · Multi thread", result.cpu_multi_m_iterations_s, "M iterations/s"],
+    ["Memory copy", result.memory_copy_mb_s, "MB/s"],
+    ["Disk write", result.disk_write_mb_s, "MB/s"],
+    ["Disk read", result.disk_read_mb_s, "MB/s"]
+  ];
+  const container = document.querySelector("#gc-benchmark-results");
+  container.replaceChildren();
+
+  for (const [label, value, unit] of metrics) {
+    const card = document.createElement("article");
+    card.className = "gc-metric-card";
+    const heading = document.createElement("small");
+    heading.textContent = label;
+    const number = document.createElement("strong");
+    number.textContent = formatBenchmarkMetric(value, unit);
+    card.append(heading, number);
+    container.append(card);
+  }
+
+  const summary = document.createElement("div");
+  summary.className = "gc-benchmark-summary";
+  summary.textContent = `${result.logical_threads} logical threads · ${result.duration_ms} ms total`;
+  container.append(summary);
+  setText("#gc-benchmark-status", result.disk_read_note || "Benchmark completed.");
+}
+
+async function runHardwareBenchmark() {
+  const button = document.querySelector("#gc-run-benchmark");
+  button.disabled = true;
+  button.textContent = "Testing…";
+  setText("#gc-benchmark-status", "Measuring CPU, memory and storage. Please keep HADOC open…");
+  document.querySelector("#gc-benchmark-results").replaceChildren();
+
+  try {
+    const result = await invoke("run_quick_benchmark");
+    renderBenchmarkResults(result);
+  } catch (error) {
+    setText("#gc-benchmark-status", String(error));
+  } finally {
+    button.disabled = false;
+    button.textContent = "Run again ↻";
   }
 }
 
@@ -508,6 +804,51 @@ document.querySelectorAll("[data-action]").forEach(element => {
   });
 });
 
+document.querySelector("#gc-close").addEventListener("click", closeGameCenter);
+document.querySelector("#gc-backdrop").addEventListener("click", closeGameCenter);
+document.querySelector("#open-game-center").addEventListener("click", openGameCenter);
+document.querySelectorAll("[data-gc-tab]").forEach(button => {
+  button.addEventListener("click", () => setGameCenterTab(button.dataset.gcTab));
+});
+document.querySelector("#gc-scan").addEventListener("click", scanForGames);
+document.querySelector("#gc-add-form").addEventListener("submit", event => {
+  event.preventDefault();
+  const name = document.querySelector("#gc-add-name").value.trim();
+  const path = document.querySelector("#gc-add-path").value.trim();
+  const profile = document.querySelector("#gc-add-profile").value;
+  if (path) addGameToLibrary(name, path, profile);
+});
+document.querySelector("#gc-game-profile").addEventListener("change", event => {
+  updateGameProfileDescription(event.target.value);
+});
+document.querySelector("#gc-save-profile").addEventListener("click", async () => {
+  const game = selectedGame();
+  if (!game) return;
+  try {
+    gameEntries = await invoke("set_game_profile", {
+      id: game.id,
+      profile: document.querySelector("#gc-game-profile").value
+    });
+    renderGameLibrary();
+    toast("Game profile saved.");
+  } catch (error) {
+    toast(String(error));
+  }
+});
+document.querySelector("#gc-launch-game").addEventListener("click", launchSelectedGame);
+document.querySelector("#gc-remove-game").addEventListener("click", async () => {
+  const game = selectedGame();
+  if (!game) return;
+  try {
+    gameEntries = await invoke("remove_game", { id: game.id });
+    selectedGameId = gameEntries[0]?.id ?? null;
+    renderGameLibrary();
+    toast("Removed from HADOC only. Original game files were not changed.");
+  } catch (error) {
+    toast(String(error));
+  }
+});
+document.querySelector("#gc-run-benchmark").addEventListener("click", runHardwareBenchmark);
 document.querySelector("#fm-close").addEventListener("click", closeFileManager);
 document.querySelector("#fm-backdrop").addEventListener("click", closeFileManager);
 document.querySelector("#fm-back").addEventListener("click", async () => {
@@ -576,7 +917,8 @@ document.addEventListener("keydown", event => {
     path.select();
   }
   if (event.key === "Escape") {
-    if (fileManagerOpen) closeFileManager();
+    if (gameCenterOpen) closeGameCenter();
+    else if (fileManagerOpen) closeFileManager();
     else toggleLauncher(false);
   }
   if ((event.key === "Meta" || event.key === " ") && event.altKey) toggleLauncher();
