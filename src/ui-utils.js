@@ -19,3 +19,33 @@ export function formatBytes(value) {
   const amount = value / (1024 ** unitIndex);
   return `${amount.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
+
+
+export function mergeDirectoryPage(currentEntries, page) {
+  const entries = [...currentEntries];
+  const knownPaths = new Set(
+    currentEntries.map(entry => entry.path).filter(path => typeof path === "string")
+  );
+
+  for (const entry of page?.entries ?? []) {
+    if (!entry || typeof entry.path !== "string" || knownPaths.has(entry.path)) continue;
+    entries.push(entry);
+    knownPaths.add(entry.path);
+  }
+
+  const rawOffset = Number(page?.next_offset);
+  return {
+    entries,
+    nextOffset: Number.isFinite(rawOffset) ? Math.max(0, Math.floor(rawOffset)) : entries.length,
+    hasMore: Boolean(page?.has_more)
+  };
+}
+
+export function filterEntries(entries, query) {
+  const needle = String(query ?? "").trim().toLocaleLowerCase();
+  if (!needle) return entries;
+
+  return entries.filter(entry =>
+    String(entry?.name ?? "").toLocaleLowerCase().includes(needle)
+  );
+}
