@@ -313,4 +313,70 @@ mod tests {
         assert_eq!(locations.len(), 1);
         assert_eq!(locations[0].name, "Home");
     }
+
+    #[test]
+    fn directory_pages_keep_global_folder_first_order() {
+        let temp = TempDirectory::new();
+        fs::create_dir(temp.path().join("Z-folder")).unwrap();
+        fs::write(temp.path().join("c.txt"), b"c").unwrap();
+        fs::write(temp.path().join("a.txt"), b"a").unwrap();
+        fs::write(temp.path().join("b.txt"), b"b").unwrap();
+
+        let first = super::read_directory_page(temp.path(), 0, 2, None).unwrap();
+        let second = super::read_directory_page(temp.path(), 2, 2, None).unwrap();
+
+        assert_eq!(
+            first.entries.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
+            vec!["Z-folder", "a.txt"]
+        );
+        assert_eq!(first.total_entries, 4);
+        assert_eq!(first.next_offset, 2);
+        assert!(first.has_more);
+        assert_eq!(
+            second.entries.iter().map(|entry| entry.name.as_str()).collect::<Vec<_>>(),
+            vec!["b.txt", "c.txt"]
+        );
+        assert_eq!(second.next_offset, 4);
+        assert!(!second.has_more);
+    }
+
+    #[test]
+    fn directory_query_filters_before_pagination() {
+        let temp = TempDirectory::new();
+        fs::write(temp.path().join("needle-a.txt"), b"a").unwrap();
+        fs::write(temp.path().join("unrelated.txt"), b"x").unwrap();
+        fs::write(temp.path().join("needle-b.txt"), b"b").unwrap();
+
+        let first = super::read_directory_page(temp.path(), 0, 1, Some("needle")).unwrap();
+        let second = super::read_directory_page(temp.path(), 1, 1, Some("needle")).unwrap();
+
+        assert_eq!(first.total_entries, 2);
+        assert_eq!(first.entries[0].name, "needle-a.txt");
+        assert!(first.has_more);
+        assert_eq!(second.entries[0].name, "needle-b.txt");
+        assert!(!second.has_more);
+    }
+
+    #[test]
+    fn directory_pages_keep_hidden_files_and_file_extensions() {
+        let temp = TempDirectory::new();
+        fs::write(temp.path().join(".private.txt"), b"secret").unwrap();
+        fs::write(temp.path().join("notes.md"), b"notes").unwrap();
+
+        let listing = super::read_directory_page(temp.path(), 0, 20, None).unwrap();
+        let hidden = listing.entries.iter().find(|entry| entry.name == ".private.txt").unwrap();
+        let visible = listing.entries.iter().find(|entry| entry.name == "notes.md").unwrap();
+
+        assert!(hidden.is_hidden);
+        assert_eq!(hidden.extension.as_deref(), Some("txt"));
+        assert!(!visible.is_hidden);
+        assert_eq!(visible.extension.as_deref(), Some("md"));
+    }
+
+    #[test]
+    fn directory_page_limit_is_bounded() {
+        assert_eq!(super::bounded_page_limit(None), 200);
+        assert_eq!(super::bounded_page_limit(Some(1_000_000)), 500);
+        assert_eq!(super::bounded_page_limit(Some(0)), 1);
+    }
 }
