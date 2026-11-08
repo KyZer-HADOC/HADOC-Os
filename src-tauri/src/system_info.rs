@@ -36,7 +36,7 @@ pub fn get_system_snapshot() -> SystemSnapshot {
     SystemSnapshot {
         computer_name: System::host_name(),
         os_version: System::long_os_version(),
-        cpu_arch: System::cpu_arch(),
+        cpu_arch: Some(System::cpu_arch()),
         logical_threads: std::thread::available_parallelism()
             .map(|count| count.get())
             .unwrap_or(0),
