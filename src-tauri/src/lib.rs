@@ -1,4 +1,5 @@
 mod file_manager;
+mod system_info;
 
 use std::process::Command;
 use tauri::Manager;
