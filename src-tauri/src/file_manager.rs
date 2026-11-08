@@ -1,3 +1,209 @@
+use serde::Serialize;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
+
+#[derive(Debug, Serialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: Option<u64>,
+    pub modified: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DirectoryListing {
+    pub path: String,
+    pub parent: Option<String>,
+    pub entries: Vec<FileEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QuickLocation {
+    pub name: String,
+    pub path: String,
+    pub icon: String,
+    pub group: String,
+}
+
+fn read_directory(path: &Path) -> Result<DirectoryListing, String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("Cannot access {}: {error}", path.display()))?;
+
+    if !canonical.is_dir() {
+        return Err(format!("{} is not a folder.", canonical.display()));
+    }
+
+    let mut entries = Vec::new();
+    let directory = fs::read_dir(&canonical)
+        .map_err(|error| format!("Cannot read {}: {error}", canonical.display()))?;
+
+    for entry in directory {
+        let Ok(entry) = entry else { continue };
+        let entry_path = entry.path();
+        let Ok(metadata) = entry.metadata() else { continue };
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs());
+
+        entries.push(FileEntry {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            path: entry_path.to_string_lossy().into_owned(),
+            is_dir: metadata.is_dir(),
+            size: if metadata.is_file() { Some(metadata.len()) } else { None },
+            modified,
+        });
+    }
+
+    entries.sort_by(|left, right| {
+        right
+            .is_dir
+            .cmp(&left.is_dir)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+
+    Ok(DirectoryListing {
+        path: canonical.to_string_lossy().into_owned(),
+        parent: canonical.parent().map(|parent| parent.to_string_lossy().into_owned()),
+        entries,
+    })
+}
+
+#[tauri::command]
+pub fn list_directory(path: Option<String>) -> Result<DirectoryListing, String> {
+    let target = match path {
+        Some(path) if !path.trim().is_empty() => PathBuf::from(path),
+        Some(_) => return Err("Enter a folder path.".into()),
+        None => default_home_directory()?,
+    };
+
+    read_directory(&target)
+}
+
+#[tauri::command]
+pub fn get_quick_locations() -> Vec<QuickLocation> {
+    let Some(home) = home_directory() else {
+        return Vec::new();
+    };
+
+    let mut locations = Vec::new();
+    if home.is_dir() {
+        locations.push(QuickLocation {
+            name: "Home".into(),
+            path: home.to_string_lossy().into_owned(),
+            icon: "⌂".into(),
+            group: "Places".into(),
+        });
+    }
+
+    let folders = [
+        ("Desktop", "Desktop", "▣"),
+        ("Documents", "Documents", "▤"),
+        ("Downloads", "Downloads", "⇩"),
+        ("Pictures", "Pictures", "▧"),
+        ("Music", "Music", "♫"),
+        ("Videos", "Videos", "▶"),
+    ];
+
+    for (name, folder, icon) in folders {
+        let candidate = home.join(folder);
+        if candidate.is_dir() {
+            locations.push(QuickLocation {
+                name: name.into(),
+                path: candidate.to_string_lossy().into_owned(),
+                icon: icon.into(),
+                group: "Places".into(),
+            });
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    for letter in b'A'..=b'Z' {
+        let drive = PathBuf::from(format!("{}:\\", letter as char));
+        if drive.is_dir() {
+            locations.push(QuickLocation {
+                name: format!("{}:", letter as char),
+                path: drive.to_string_lossy().into_owned(),
+                icon: "▰".into(),
+                group: "Drives".into(),
+            });
+        }
+    }
+
+    locations
+}
+
+#[tauri::command]
+pub fn open_path(path: String) -> Result<(), String> {
+    let target = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|error| format!("Cannot open selected item: {error}"))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use std::ptr;
+
+        #[link(name = "shell32")]
+        extern "system" {
+            fn ShellExecuteW(
+                hwnd: *mut std::ffi::c_void,
+                operation: *const u16,
+                file: *const u16,
+                parameters: *const u16,
+                directory: *const u16,
+                show_command: i32,
+            ) -> *mut std::ffi::c_void;
+        }
+
+        let operation: Vec<u16> = std::ffi::OsStr::new("open")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let target_wide: Vec<u16> = target.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let result = unsafe {
+            ShellExecuteW(
+                ptr::null_mut(),
+                operation.as_ptr(),
+                target_wide.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                1,
+            )
+        };
+
+        if result as isize <= 32 {
+            return Err(format!("Windows could not open {}.", target.display()));
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = target;
+        Err("Opening items from HADOC OS is currently supported on Windows only.".into())
+    }
+}
+
+fn home_directory() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+}
+
+fn default_home_directory() -> Result<PathBuf, String> {
+    home_directory().ok_or_else(|| "Windows user folder could not be found.".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::read_directory;
