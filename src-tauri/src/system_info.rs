@@ -1,3 +1,51 @@
+use serde::Serialize;
+use sysinfo::{Disks, System};
+
+#[derive(Debug, Serialize)]
+pub struct DiskSnapshot {
+    pub name: String,
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SystemSnapshot {
+    pub computer_name: Option<String>,
+    pub os_version: Option<String>,
+    pub cpu_arch: Option<String>,
+    pub logical_threads: usize,
+    pub total_memory: u64,
+    pub used_memory: u64,
+    pub disks: Vec<DiskSnapshot>,
+}
+
+#[tauri::command]
+pub fn get_system_snapshot() -> SystemSnapshot {
+    let mut system = System::new();
+    system.refresh_memory();
+
+    let disks = Disks::new_with_refreshed_list()
+        .iter()
+        .map(|disk| DiskSnapshot {
+            name: disk.mount_point().display().to_string(),
+            total_bytes: disk.total_space(),
+            available_bytes: disk.available_space(),
+        })
+        .collect();
+
+    SystemSnapshot {
+        computer_name: System::host_name(),
+        os_version: System::long_os_version(),
+        cpu_arch: System::cpu_arch(),
+        logical_threads: std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(0),
+        total_memory: system.total_memory(),
+        used_memory: system.used_memory(),
+        disks,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::SystemSnapshot;
