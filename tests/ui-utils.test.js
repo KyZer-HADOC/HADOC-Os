@@ -19,3 +19,41 @@ test("formatBytes labels missing and invalid sizes", () => {
   assert.equal(formatBytes(undefined), "Unavailable");
   assert.equal(formatBytes(-1), "Unavailable");
 });
+
+
+import { filterEntries, mergeDirectoryPage } from "../src/ui-utils.js";
+
+test("mergeDirectoryPage appends only new filesystem paths and tracks offsets", () => {
+  const first = mergeDirectoryPage([], {
+    entries: [
+      { path: "C:\\folder", name: "folder" },
+      { path: "C:\\a.txt", name: "a.txt" }
+    ],
+    next_offset: 2,
+    has_more: true
+  });
+  const second = mergeDirectoryPage(first.entries, {
+    entries: [
+      { path: "C:\\a.txt", name: "a.txt" },
+      { path: "C:\\b.txt", name: "b.txt" }
+    ],
+    next_offset: 4,
+    has_more: false
+  });
+
+  assert.deepEqual(second.entries.map(entry => entry.name), ["folder", "a.txt", "b.txt"]);
+  assert.equal(second.nextOffset, 4);
+  assert.equal(second.hasMore, false);
+});
+
+test("filterEntries searches names case-insensitively and preserves text literally", () => {
+  const entries = [
+    { name: "AppData" },
+    { name: "Program Files" },
+    { name: "<notes>.txt" }
+  ];
+
+  assert.deepEqual(filterEntries(entries, "app"), [entries[0]]);
+  assert.deepEqual(filterEntries(entries, "<NOTES>"), [entries[2]]);
+  assert.deepEqual(filterEntries(entries, ""), entries);
+});
