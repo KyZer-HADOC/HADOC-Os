@@ -1,7 +1,7 @@
 import "./style.css";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { escapeHtml, formatBytes } from "./ui-utils.js";
+import { formatBytes } from "./ui-utils.js";
 
 const app = document.querySelector("#app");
 const win = getCurrentWindow();
@@ -437,6 +437,3 @@ setInterval(updateClock, 15000);
 refreshSystemDashboard();
 setInterval(refreshSystemDashboard, 10000);
 
-// Keep the helper available for safe rendering if additional path labels are
-// introduced later; all current filesystem strings are assigned with textContent.
-void escapeHtml;
